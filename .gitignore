@@ -51,3 +51,6 @@ scratch/
 *.keras
 .env
 .gitattributes
+emotion-image-model/
+model_fp32.onnx
+convert_fp32.py
