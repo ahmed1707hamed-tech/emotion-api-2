@@ -1,3 +1,11 @@
+---
+title: emotion-api-2
+emoji: 🎭
+colorFrom: blue
+colorTo: purple
+sdk: docker
+pinned: false
+---
 # 🎭 Multimodal Emotion Detection API
 
 A production-ready FastAPI application that provides emotion analysis across three modalities: Image, Audio, and Text. This project is structured for easy deployment to Hugging Face Spaces or any cloud provider.
