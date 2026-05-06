@@ -49,6 +49,5 @@ scratch/
 *.safetensors
 *.h5
 *.keras
-*.onnx
 .env
 .gitattributes
