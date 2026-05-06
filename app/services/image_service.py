@@ -21,15 +21,16 @@ class ImageModelService:
             "haarcascade_frontalface_default.xml"
         )
 
-        # labels
+        # IMPORTANT:
+        # must match training order exactly
         self.labels = [
             "angry",
             "disgust",
             "fear",
             "happy",
-            "neutral",
             "sad",
-            "surprise"
+            "surprise",
+            "neutral"
         ]
 
     def load_model(self):
@@ -48,7 +49,7 @@ class ImageModelService:
                 path
             )
 
-            # load session
+            # load onnx session
             self.session = ort.InferenceSession(
                 path,
                 providers=["CPUExecutionProvider"]
@@ -123,19 +124,18 @@ class ImageModelService:
             cv2.COLOR_BGR2GRAY
         )
 
-        # resize exactly like training
+        # EXACT training resize
         gray = cv2.resize(
             gray,
             (48, 48)
         )
 
         # normalize
-        gray = (
-            gray.astype(np.float32)
-            / 255.0
-        )
+        gray = gray.astype(
+            np.float32
+        ) / 255.0
 
-        # shape => (1,48,48,1)
+        # exact model shape
         img = gray.reshape(
             1,
             48,
@@ -229,48 +229,24 @@ class ImageModelService:
                 probs
             )
 
-            # top predictions
-            top_indices = np.argsort(
-                probs
-            )[::-1]
-
-            top1 = int(top_indices[0])
-            top2 = int(top_indices[1])
-
-            label1 = self.labels[top1]
-            label2 = self.labels[top2]
-
-            conf1 = float(probs[top1])
-            conf2 = float(probs[top2])
-
-            logger.info(
-                "🎯 Top1=%s %.3f | "
-                "Top2=%s %.3f",
-                label1,
-                conf1,
-                label2,
-                conf2
+            # best prediction
+            idx = int(
+                np.argmax(probs)
             )
 
-            # low confidence
-            if conf1 < 0.20:
-                return "neutral"
+            conf = float(
+                probs[idx]
+            )
 
-            # angry bias correction
-            if label1 == "angry":
+            label = self.labels[idx]
 
-                if (
-                    conf1 - conf2
-                ) < 0.10:
+            logger.info(
+                "🎯 Prediction: %s | %.4f",
+                label,
+                conf
+            )
 
-                    logger.info(
-                        "⚖️ Angry corrected → %s",
-                        label2
-                    )
-
-                    return label2
-
-            return label1
+            return label
 
         except Exception as e:
 
