@@ -4,7 +4,10 @@ import librosa
 import onnxruntime as ort
 import joblib
 
+from huggingface_hub import hf_hub_download
+
 logger = logging.getLogger(__name__)
+
 
 class AudioModelService:
     def __init__(self):
@@ -12,19 +15,40 @@ class AudioModelService:
         self.encoder = None
         self.input_name = None
 
-    def load_model(self, model_path: str, encoder_path: str):
+    def load_model(self, model_path: str = None, encoder_path: str = None):
         try:
-            # Use fixed assets
-            if "stable" not in encoder_path:
-                encoder_path = encoder_path.replace(".pkl", "_stable.pkl")
+            # Download ONNX model from HF Hub
+            model_path = hf_hub_download(
+                repo_id="ahmed-hamed/emotion-api-2",
+                filename="audio/audio_model.onnx",
+                repo_type="space"
+            )
 
+            logger.info("📦 Downloaded audio model: %s", model_path)
+
+            # Download encoder
+            encoder_path = hf_hub_download(
+                repo_id="ahmed-hamed/emotion-api-2",
+                filename="emotion-models/encoder_stable.pkl",
+                repo_type="space"
+            )
+
+            logger.info("📦 Downloaded encoder: %s", encoder_path)
+
+            # Load ONNX session
             self.session = ort.InferenceSession(
                 model_path,
                 providers=["CPUExecutionProvider"]
             )
+
+            # Load encoder
             self.encoder = joblib.load(encoder_path)
+
+            # Input name
             self.input_name = self.session.get_inputs()[0].name
+
             logger.info("✅ Audio model loaded successfully")
+            logger.info("🔌 Input name: %s", self.input_name)
 
         except Exception as e:
             logger.error("❌ Audio load error: %s", e)
@@ -35,32 +59,74 @@ class AudioModelService:
             return None, 0.0
 
         try:
-            y, sr = librosa.load(file_path, duration=3)
+            # Load audio
+            y, sr = librosa.load(
+                file_path,
+                duration=3
+            )
 
-            # Handle short audio with padding
+            # Pad short audio
             if len(y) < sr * 3:
-                y = np.pad(y, (0, sr * 3 - len(y)))
+                y = np.pad(
+                    y,
+                    (0, sr * 3 - len(y))
+                )
 
-            # Normalize audio
+            # Normalize
             y = librosa.util.normalize(y)
 
-            # Extract MFCC: n_mfcc=40, mean aggregation
-            mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=40)
-            features = np.mean(mfcc.T, axis=0).reshape(1, 40).astype(np.float32)
+            # MFCC features
+            mfcc = librosa.feature.mfcc(
+                y=y,
+                sr=sr,
+                n_mfcc=40
+            )
 
-            preds = self.session.run(None, {self.input_name: features})[0][0]
+            features = np.mean(
+                mfcc.T,
+                axis=0
+            ).reshape(1, 40).astype(np.float32)
+
+            # ONNX inference
+            outputs = self.session.run(
+                None,
+                {self.input_name: features}
+            )
+
+            preds = outputs[0][0]
+
+            logger.info(
+                "📊 Audio predictions: %s",
+                preds
+            )
 
             idx = int(np.argmax(preds))
-            conf = float(np.max(preds))
-            label = str(self.encoder.classes_[idx]).lower()
 
+            conf = float(np.max(preds))
+
+            label = str(
+                self.encoder.classes_[idx]
+            ).lower()
+
+            logger.info(
+                "🎯 Audio prediction: %s | Confidence: %.4f",
+                label,
+                conf
+            )
+
+            # Low confidence fallback
             if conf < 0.45:
                 return "neutral", conf
 
             return label, conf
 
         except Exception as e:
-            logger.error("❌ Audio prediction error: %s", e)
+            logger.error(
+                "❌ Audio prediction error: %s",
+                e
+            )
+
             return None, 0.0
+
 
 audio_model_service = AudioModelService()

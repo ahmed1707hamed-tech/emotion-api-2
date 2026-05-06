@@ -3,6 +3,8 @@ import numpy as np
 import logging
 import onnxruntime as ort
 
+from huggingface_hub import hf_hub_download
+
 logger = logging.getLogger(__name__)
 
 
@@ -28,10 +30,19 @@ class ImageModelService:
         ]
 
     def load_model(self):
-        path = "image/model.onnx"
-
         try:
+            # Download ONNX model from Hugging Face Hub
+            path = hf_hub_download(
+                repo_id="ahmed-hamed/emotion-api-2",
+                filename="image/model.onnx",
+                repo_type="space"
+            )
+
+            logger.info("📦 Downloaded model: %s", path)
+
+            # Load ONNX session
             self.session = ort.InferenceSession(path)
+
             self.input_name = self.session.get_inputs()[0].name
 
             logger.info("✅ ONNX image model loaded.")
@@ -53,7 +64,10 @@ class ImageModelService:
         if len(faces) > 0:
             logger.info("👀 Face detected")
 
-            x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
+            x, y, w, h = max(
+                faces,
+                key=lambda f: f[2] * f[3]
+            )
 
             face = image[y:y + h, x:x + w]
 
@@ -64,11 +78,15 @@ class ImageModelService:
             return face
 
         logger.info("🌚 No face detected, fallback to full image")
+
         return image
 
     def _preprocess(self, face):
         # grayscale
-        gray = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(
+            face,
+            cv2.COLOR_BGR2GRAY
+        )
 
         # histogram equalization
         gray = cv2.equalizeHist(gray)
@@ -76,8 +94,11 @@ class ImageModelService:
         # resize
         gray = cv2.resize(gray, (48, 48))
 
-        # convert to 3 channels
-        img = np.stack([gray, gray, gray], axis=-1)
+        # 3 channels
+        img = np.stack(
+            [gray, gray, gray],
+            axis=-1
+        )
 
         # float32
         img = img.astype(np.float32)
@@ -105,12 +126,17 @@ class ImageModelService:
         try:
             # bytes → image
             if isinstance(image_input, bytes):
-                nparr = np.frombuffer(image_input, np.uint8)
+
+                nparr = np.frombuffer(
+                    image_input,
+                    np.uint8
+                )
 
                 image = cv2.imdecode(
                     nparr,
                     cv2.IMREAD_COLOR
                 )
+
             else:
                 image = image_input
 
@@ -131,11 +157,21 @@ class ImageModelService:
 
             preds = outputs[0][0]
 
-            logger.info("📊 Raw predictions: %s", preds)
+            logger.info(
+                "📊 Raw predictions: %s",
+                preds
+            )
 
             # softmax if needed
-            if not np.isclose(np.sum(preds), 1.0, atol=1e-3):
-                exp_preds = np.exp(preds - np.max(preds))
+            if not np.isclose(
+                np.sum(preds),
+                1.0,
+                atol=1e-3
+            ):
+                exp_preds = np.exp(
+                    preds - np.max(preds)
+                )
+
                 preds = exp_preds / exp_preds.sum()
 
             idx = int(np.argmax(preds))
@@ -150,16 +186,19 @@ class ImageModelService:
                 conf
             )
 
-            # bias correction
+            # angry bias correction
             sorted_indices = np.argsort(preds)[::-1]
 
             if label == "angry" and len(sorted_indices) > 1:
+
                 second_idx = int(sorted_indices[1])
 
                 second_conf = float(preds[second_idx])
 
                 if (conf - second_conf) < 0.15:
+
                     label = self.labels[second_idx]
+
                     conf = second_conf
 
                     logger.info(
@@ -173,7 +212,11 @@ class ImageModelService:
             return label
 
         except Exception as e:
-            logger.error("❌ Image prediction error: %s", e)
+            logger.error(
+                "❌ Image prediction error: %s",
+                e
+            )
+
             return "neutral"
 
 
