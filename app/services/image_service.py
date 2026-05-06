@@ -16,28 +16,15 @@ class ImageModelService:
         self.input_name = None
         self.input_shape = None
 
-        # face detector
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades +
             "haarcascade_frontalface_default.xml"
         )
 
-        # labels
-        self.labels = [
-            "angry",
-            "happy",
-            "neutral",
-            "sad",
-            "surprise",
-            "fear",
-            "disgust"
-        ]
-
     def load_model(self):
 
         try:
 
-            # download fp32 model
             path = hf_hub_download(
                 repo_id="ahmed-hamed/emotion-image-model",
                 filename="model.onnx",
@@ -49,7 +36,6 @@ class ImageModelService:
                 path
             )
 
-            # load onnx session
             self.session = ort.InferenceSession(
                 path,
                 providers=["CPUExecutionProvider"]
@@ -102,8 +88,6 @@ class ImageModelService:
 
         if len(faces) > 0:
 
-            logger.info("👀 Face detected")
-
             x, y, w, h = max(
                 faces,
                 key=lambda f: f[2] * f[3]
@@ -113,6 +97,10 @@ class ImageModelService:
                 y:y+h,
                 x:x+w
             ]
+
+            logger.info(
+                "👀 Face detected"
+            )
 
             if face.size > 0:
                 return face
@@ -125,19 +113,16 @@ class ImageModelService:
 
     def _preprocess(self, face):
 
-        # grayscale
         gray = cv2.cvtColor(
             face,
             cv2.COLOR_BGR2GRAY
         )
 
-        # resize
         gray = cv2.resize(
             gray,
             (48, 48)
         )
 
-        # normalize
         gray = gray.astype(
             np.float32
         ) / 255.0
@@ -190,7 +175,10 @@ class ImageModelService:
                 "❌ Model not loaded"
             )
 
-            return "neutral"
+            return {
+                "label": "neutral",
+                "confidence": 0.0
+            }
 
         try:
 
@@ -215,7 +203,11 @@ class ImageModelService:
                 image = image_input
 
             if image is None:
-                return "neutral"
+
+                return {
+                    "label": "neutral",
+                    "confidence": 0.0
+                }
 
             # detect face
             face = self._detect_face(
@@ -244,7 +236,7 @@ class ImageModelService:
                 preds
             )
 
-            # stable softmax
+            # softmax
             exp_preds = np.exp(
                 preds - np.max(preds)
             )
@@ -267,52 +259,24 @@ class ImageModelService:
             top1 = int(top_indices[0])
             top2 = int(top_indices[1])
 
-            label1 = self.labels[top1]
-            label2 = self.labels[top2]
-
             conf1 = float(probs[top1])
             conf2 = float(probs[top2])
 
             logger.info(
-                "🎯 Top1=%s %.4f | Top2=%s %.4f",
-                label1,
+                "🎯 Top1=class_%s %.4f | Top2=class_%s %.4f",
+                top1,
                 conf1,
-                label2,
+                top2,
                 conf2
             )
 
-            # low confidence
-            if conf1 < 0.25:
-
-                logger.info(
-                    "⚖️ Low confidence → neutral"
-                )
-
-                return "neutral"
-
-            # angry bias correction
-            if label1 == "angry":
-
-                # second prediction close
-                if (conf1 - conf2) < 0.18:
-
-                    logger.info(
-                        "⚖️ Angry corrected → %s",
-                        label2
-                    )
-
-                    return label2
-
-                # weak angry confidence
-                if conf1 < 0.55:
-
-                    logger.info(
-                        "⚖️ Weak angry confidence → neutral"
-                    )
-
-                    return "neutral"
-
-            return label1
+            return {
+                "label": f"class_{top1}",
+                "confidence": round(conf1, 4),
+                "top2": f"class_{top2}",
+                "top2_confidence": round(conf2, 4),
+                "probs": probs.tolist()
+            }
 
         except Exception as e:
 
@@ -321,7 +285,10 @@ class ImageModelService:
                 e
             )
 
-            return "neutral"
+            return {
+                "label": "neutral",
+                "confidence": 0.0
+            }
 
 
 image_model_service = ImageModelService()
