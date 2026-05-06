@@ -14,15 +14,13 @@ class ImageModelService:
 
         self.session = None
         self.input_name = None
+        self.input_shape = None
 
-        # face detector
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades +
             "haarcascade_frontalface_default.xml"
         )
 
-        # IMPORTANT:
-        # must match training order exactly
         self.labels = [
             "angry",
             "disgust",
@@ -37,7 +35,6 @@ class ImageModelService:
 
         try:
 
-            # download fp32 model
             path = hf_hub_download(
                 repo_id="ahmed-hamed/emotion-image-model",
                 filename="model.onnx",
@@ -49,17 +46,18 @@ class ImageModelService:
                 path
             )
 
-            # load onnx session
             self.session = ort.InferenceSession(
                 path,
                 providers=["CPUExecutionProvider"]
             )
 
-            self.input_name = (
+            model_input = (
                 self.session
                 .get_inputs()[0]
-                .name
             )
+
+            self.input_name = model_input.name
+            self.input_shape = model_input.shape
 
             logger.info(
                 "✅ ONNX image model loaded."
@@ -68,6 +66,11 @@ class ImageModelService:
             logger.info(
                 "🔌 Input name: %s",
                 self.input_name
+            )
+
+            logger.info(
+                "🧠 Model input shape: %s",
+                self.input_shape
             )
 
         except Exception as e:
@@ -95,17 +98,17 @@ class ImageModelService:
 
         if len(faces) > 0:
 
-            logger.info("👀 Face detected")
-
             x, y, w, h = max(
                 faces,
                 key=lambda f: f[2] * f[3]
             )
 
             face = image[
-                y:y + h,
-                x:x + w
+                y:y+h,
+                x:x+w
             ]
+
+            logger.info("👀 Face detected")
 
             if face.size > 0:
                 return face
@@ -118,39 +121,62 @@ class ImageModelService:
 
     def _preprocess(self, face):
 
-        # grayscale
         gray = cv2.cvtColor(
             face,
             cv2.COLOR_BGR2GRAY
         )
 
-        # EXACT training resize
         gray = cv2.resize(
             gray,
             (48, 48)
         )
 
-        # normalize
         gray = gray.astype(
             np.float32
         ) / 255.0
 
-        # exact model shape
-        img = gray.reshape(
-            1,
-            48,
-            48,
-            1
-        )
+        # dynamic shape handling
+        if self.input_shape[-1] == 1:
+
+            # NHWC grayscale
+            img = gray.reshape(
+                1,
+                48,
+                48,
+                1
+            )
+
+        elif self.input_shape[-1] == 3:
+
+            # NHWC RGB
+            img = np.stack(
+                [gray, gray, gray],
+                axis=-1
+            )
+
+            img = img.reshape(
+                1,
+                48,
+                48,
+                3
+            )
+
+        else:
+
+            # fallback
+            img = gray.reshape(
+                1,
+                48,
+                48,
+                1
+            )
 
         logger.info(
-            "📐 Shape: %s | Min=%.4f | Max=%.4f",
-            img.shape,
-            img.min(),
-            img.max()
+            "📐 Final input shape: %s",
+            img.shape
         )
 
-        return img
+        return img.astype(np.float32)
 
     def predict(self, image_input):
 
@@ -164,7 +190,6 @@ class ImageModelService:
 
         try:
 
-            # bytes → image
             if isinstance(
                 image_input,
                 bytes
@@ -187,17 +212,14 @@ class ImageModelService:
             if image is None:
                 return "neutral"
 
-            # detect face
             face = self._detect_face(
                 image
             )
 
-            # preprocess
             img = self._preprocess(
                 face
             )
 
-            # inference
             outputs = self.session.run(
                 None,
                 {
@@ -214,7 +236,6 @@ class ImageModelService:
                 preds
             )
 
-            # softmax
             exp_preds = np.exp(
                 preds - np.max(preds)
             )
@@ -229,7 +250,6 @@ class ImageModelService:
                 probs
             )
 
-            # best prediction
             idx = int(
                 np.argmax(probs)
             )
