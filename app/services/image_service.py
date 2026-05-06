@@ -16,11 +16,13 @@ class ImageModelService:
         self.input_name = None
         self.input_shape = None
 
+        # face detector
         self.face_cascade = cv2.CascadeClassifier(
             cv2.data.haarcascades +
             "haarcascade_frontalface_default.xml"
         )
 
+        # labels
         self.labels = [
             "angry",
             "disgust",
@@ -35,6 +37,7 @@ class ImageModelService:
 
         try:
 
+            # download fp32 model
             path = hf_hub_download(
                 repo_id="ahmed-hamed/emotion-image-model",
                 filename="model.onnx",
@@ -46,6 +49,7 @@ class ImageModelService:
                 path
             )
 
+            # load onnx session
             self.session = ort.InferenceSession(
                 path,
                 providers=["CPUExecutionProvider"]
@@ -98,6 +102,8 @@ class ImageModelService:
 
         if len(faces) > 0:
 
+            logger.info("👀 Face detected")
+
             x, y, w, h = max(
                 faces,
                 key=lambda f: f[2] * f[3]
@@ -107,8 +113,6 @@ class ImageModelService:
                 y:y+h,
                 x:x+w
             ]
-
-            logger.info("👀 Face detected")
 
             if face.size > 0:
                 return face
@@ -121,24 +125,26 @@ class ImageModelService:
 
     def _preprocess(self, face):
 
+        # grayscale
         gray = cv2.cvtColor(
             face,
             cv2.COLOR_BGR2GRAY
         )
 
+        # resize
         gray = cv2.resize(
             gray,
             (48, 48)
         )
 
+        # normalize
         gray = gray.astype(
             np.float32
         ) / 255.0
 
-        # dynamic shape handling
+        # dynamic shape
         if self.input_shape[-1] == 1:
 
-            # NHWC grayscale
             img = gray.reshape(
                 1,
                 48,
@@ -148,7 +154,6 @@ class ImageModelService:
 
         elif self.input_shape[-1] == 3:
 
-            # NHWC RGB
             img = np.stack(
                 [gray, gray, gray],
                 axis=-1
@@ -163,7 +168,6 @@ class ImageModelService:
 
         else:
 
-            # fallback
             img = gray.reshape(
                 1,
                 48,
@@ -190,6 +194,7 @@ class ImageModelService:
 
         try:
 
+            # bytes → image
             if isinstance(
                 image_input,
                 bytes
@@ -212,14 +217,17 @@ class ImageModelService:
             if image is None:
                 return "neutral"
 
+            # detect face
             face = self._detect_face(
                 image
             )
 
+            # preprocess
             img = self._preprocess(
                 face
             )
 
+            # inference
             outputs = self.session.run(
                 None,
                 {
@@ -236,6 +244,7 @@ class ImageModelService:
                 preds
             )
 
+            # stable softmax
             exp_preds = np.exp(
                 preds - np.max(preds)
             )
@@ -250,23 +259,60 @@ class ImageModelService:
                 probs
             )
 
-            idx = int(
-                np.argmax(probs)
-            )
+            # top predictions
+            top_indices = np.argsort(
+                probs
+            )[::-1]
 
-            conf = float(
-                probs[idx]
-            )
+            top1 = int(top_indices[0])
+            top2 = int(top_indices[1])
 
-            label = self.labels[idx]
+            label1 = self.labels[top1]
+            label2 = self.labels[top2]
+
+            conf1 = float(probs[top1])
+            conf2 = float(probs[top2])
 
             logger.info(
-                "🎯 Prediction: %s | %.4f",
-                label,
-                conf
+                "🎯 Top1=%s %.4f | Top2=%s %.4f",
+                label1,
+                conf1,
+                label2,
+                conf2
             )
 
-            return label
+            # low confidence
+            if conf1 < 0.25:
+
+                logger.info(
+                    "⚖️ Low confidence → neutral"
+                )
+
+                return "neutral"
+
+            # angry bias correction
+            if label1 == "angry":
+
+                # second prediction close
+                if (conf1 - conf2) < 0.18:
+
+                    logger.info(
+                        "⚖️ Angry corrected → %s",
+                        label2
+                    )
+
+                    return label2
+
+                # weak angry confidence
+                if conf1 < 0.55:
+
+                    logger.info(
+                        "⚖️ Weak angry confidence → neutral"
+                    )
+
+                    return "neutral"
+
+            return label1
 
         except Exception as e:
 
