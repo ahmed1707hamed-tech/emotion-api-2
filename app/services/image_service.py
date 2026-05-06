@@ -18,7 +18,7 @@ class ImageModelService:
             cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
         )
 
-        # FER2013 labels
+        # Labels
         self.labels = [
             "angry",
             "disgust",
@@ -31,7 +31,7 @@ class ImageModelService:
 
     def load_model(self):
         try:
-            # Download ONNX model from Hugging Face Hub
+            # download fp32 model
             path = hf_hub_download(
                 repo_id="ahmed-hamed/emotion-image-model",
                 filename="model.onnx",
@@ -40,8 +40,10 @@ class ImageModelService:
 
             logger.info("📦 Downloaded model: %s", path)
 
-            # Load ONNX session
-            self.session = ort.InferenceSession(path)
+            self.session = ort.InferenceSession(
+                path,
+                providers=["CPUExecutionProvider"]
+            )
 
             self.input_name = self.session.get_inputs()[0].name
 
@@ -53,64 +55,66 @@ class ImageModelService:
             self.session = None
 
     def _detect_face(self, image):
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2GRAY
+        )
 
         faces = self.face_cascade.detectMultiScale(
             gray,
-            scaleFactor=1.3,
-            minNeighbors=5
+            scaleFactor=1.2,
+            minNeighbors=5,
+            minSize=(60, 60)
         )
 
         if len(faces) > 0:
-            logger.info("👀 Face detected")
 
             x, y, w, h = max(
                 faces,
                 key=lambda f: f[2] * f[3]
             )
 
-            face = image[y:y + h, x:x + w]
+            face = image[y:y+h, x:x+w]
 
-            if face.size == 0:
-                logger.warning("⚠️ Empty face crop")
-                return image
+            logger.info("👀 Face detected")
 
-            return face
+            if face.size > 0:
+                return face
 
-        logger.info("🌚 No face detected, fallback to full image")
+        logger.info("🌚 No face detected → full image")
 
         return image
 
     def _preprocess(self, face):
-        # grayscale
+
         gray = cv2.cvtColor(
             face,
             cv2.COLOR_BGR2GRAY
         )
 
-        # histogram equalization
-        gray = cv2.equalizeHist(gray)
-
-        # resize
-        gray = cv2.resize(gray, (48, 48))
-
-        # 3 channels
-        img = np.stack(
-            [gray, gray, gray],
-            axis=-1
+        # CLAHE better than equalizeHist
+        clahe = cv2.createCLAHE(
+            clipLimit=2.0,
+            tileGridSize=(8, 8)
         )
 
-        # float32
-        img = img.astype(np.float32)
+        gray = clahe.apply(gray)
 
-        # normalize
-        img = img / 255.0
+        gray = cv2.resize(
+            gray,
+            (48, 48)
+        )
 
-        # batch dimension
-        img = np.expand_dims(img, axis=0)
+        gray = gray.astype(np.float32) / 255.0
+
+        # shape => (1,48,48,1)
+        img = np.expand_dims(
+            gray,
+            axis=(0, -1)
+        )
 
         logger.info(
-            "📐 Input shape: %s | Min: %.4f | Max: %.4f",
+            "📐 Shape: %s | Min=%.4f | Max=%.4f",
             img.shape,
             img.min(),
             img.max()
@@ -119,8 +123,9 @@ class ImageModelService:
         return img
 
     def predict(self, image_input):
+
         if self.session is None:
-            logger.error("❌ Image model not loaded")
+            logger.error("❌ Model not loaded")
             return "neutral"
 
         try:
@@ -155,63 +160,65 @@ class ImageModelService:
                 {self.input_name: img}
             )
 
-            preds = outputs[0][0]
+            preds = outputs[0][0].astype(np.float32)
 
             logger.info(
                 "📊 Raw predictions: %s",
                 preds
             )
 
-            # softmax if needed
-            if not np.isclose(
-                np.sum(preds),
-                1.0,
-                atol=1e-3
-            ):
-                exp_preds = np.exp(
-                    preds - np.max(preds)
-                )
-
-                preds = exp_preds / exp_preds.sum()
-
-            idx = int(np.argmax(preds))
-
-            conf = float(np.max(preds))
-
-            label = self.labels[idx]
-
-            logger.info(
-                "🎯 Prediction: %s | Confidence: %.4f",
-                label,
-                conf
+            # stable softmax
+            exp_preds = np.exp(
+                preds - np.max(preds)
             )
 
-            # angry bias correction
-            sorted_indices = np.argsort(preds)[::-1]
+            probs = exp_preds / np.sum(exp_preds)
 
-            if label == "angry" and len(sorted_indices) > 1:
+            logger.info(
+                "📈 Softmax probs: %s",
+                probs
+            )
 
-                second_idx = int(sorted_indices[1])
+            # top predictions
+            top_indices = np.argsort(probs)[::-1]
 
-                second_conf = float(preds[second_idx])
+            top1 = int(top_indices[0])
+            top2 = int(top_indices[1])
 
-                if (conf - second_conf) < 0.15:
+            label1 = self.labels[top1]
+            label2 = self.labels[top2]
 
-                    label = self.labels[second_idx]
+            conf1 = float(probs[top1])
+            conf2 = float(probs[top2])
 
-                    conf = second_conf
+            logger.info(
+                "🎯 Top1=%s %.3f | Top2=%s %.3f",
+                label1,
+                conf1,
+                label2,
+                conf2
+            )
 
-                    logger.info(
-                        "⚖️ Bias corrected to: %s",
-                        label
-                    )
-
-            if conf < 0.20:
+            # weak confidence
+            if conf1 < 0.35:
                 return "neutral"
 
-            return label
+            # angry bias fix
+            if label1 == "angry":
+
+                if (conf1 - conf2) < 0.12:
+
+                    logger.info(
+                        "⚖️ Angry bias corrected → %s",
+                        label2
+                    )
+
+                    return label2
+
+            return label1
 
         except Exception as e:
+
             logger.error(
                 "❌ Image prediction error: %s",
                 e
