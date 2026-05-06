@@ -33,9 +33,9 @@ class ImageModelService:
         try:
             # Download ONNX model from Hugging Face Hub
             path = hf_hub_download(
-                repo_id="ahmed-hamed/emotion-api-2",
-                filename="image/model.onnx",
-                repo_type="space"
+                repo_id="ahmed-hamed/emotion-image-model",
+                filename="model.onnx",
+                repo_type="model"
             )
 
             logger.info("📦 Downloaded model: %s", path)
