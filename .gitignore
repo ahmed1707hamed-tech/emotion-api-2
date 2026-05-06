@@ -1,0 +1,54 @@
+# =========================
+# Virtual Environment
+# =========================
+venv/
+env/
+
+# =========================
+# Python cache
+# =========================
+__pycache__/
+*.pyc
+
+# =========================
+# Temp files
+# =========================
+temp*
+*.tmp
+*.bak
+
+# =========================
+# Audio temp (اختياري)
+# =========================
+*.wav
+
+# =========================
+# Training / conversion
+# =========================
+onnx_convert/
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+# training/debug
+scratch/
+
+# duplicate models
+* (1).onnx
+
+# heavy unused models
+*.safetensors
+*.h5
+*.keras
+*.onnx
+.env
+.gitattributes

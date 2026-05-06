@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+onnxruntime
+opencv-python
+numpy
+scikit-learn
+librosa
+joblib
+python-multipart
+python-dotenv
+requests
