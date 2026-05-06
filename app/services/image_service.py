@@ -25,12 +25,12 @@ class ImageModelService:
         # labels
         self.labels = [
             "angry",
-            "disgust",
-            "fear",
             "happy",
+            "neutral",
             "sad",
             "surprise",
-            "neutral"
+            "fear",
+            "disgust"
         ]
 
     def load_model(self):
