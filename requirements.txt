@@ -11,3 +11,6 @@ python-dotenv
 requests
 huggingface_hub
 groq
+deepface
+tf-keras
+tensorflow-cpu
