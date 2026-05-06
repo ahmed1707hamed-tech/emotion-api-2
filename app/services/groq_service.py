@@ -11,77 +11,91 @@ def generate_response(
     user_text: str = ""
 ):
 
-    emotion_prompts = {
+    try:
 
-        "happy": (
-            "The user looks happy and positive. "
-            "Respond warmly, cheerfully, and naturally."
-        ),
+        emotion_prompts = {
 
-        "sad": (
-            "The user seems sad. "
-            "Respond with empathy and emotional support."
-        ),
+            "happy": (
+                "Respond warmly and cheerfully."
+            ),
 
-        "angry": (
-            "The user seems angry or frustrated. "
-            "Respond calmly and try to de-escalate."
-        ),
+            "sad": (
+                "Respond with empathy."
+            ),
 
-        "fear": (
-            "The user seems anxious or fearful. "
-            "Respond reassuringly and gently."
-        ),
+            "angry": (
+                "Respond calmly and softly."
+            ),
 
-        "surprise": (
-            "The user looks surprised or shocked. "
-            "Respond with curiosity and engagement."
-        ),
+            "fear": (
+                "Respond reassuringly."
+            ),
 
-        "neutral": (
-            "The user appears neutral. "
-            "Respond naturally and conversationally."
-        ),
+            "surprise": (
+                "Respond with excitement."
+            ),
 
-        "disgust": (
-            "The user seems uncomfortable or disgusted. "
-            "Respond carefully and sympathetically."
-        )
-    }
+            "neutral": (
+                "Respond naturally."
+            ),
 
-    system_prompt = emotion_prompts.get(
-        emotion,
-        emotion_prompts["neutral"]
-    )
+            "disgust": (
+                "Respond carefully and sympathetically."
+            )
+        }
 
-    if not user_text:
-        user_text = (
-            f"My detected emotion is {emotion}"
+        system_prompt = emotion_prompts.get(
+            emotion,
+            "Respond naturally."
         )
 
-    completion = client.chat.completions.create(
+        if not user_text:
+            user_text = (
+                f"My emotion is {emotion}"
+            )
 
-        model="llama3-70b-8192",
+        completion = client.chat.completions.create(
 
-        messages=[
+            model="llama3-8b-8192",
 
-            {
-                "role": "system",
-                "content": system_prompt
-            },
+            messages=[
 
-            {
-                "role": "user",
-                "content": user_text
-            }
-        ],
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
 
-        temperature=0.9,
-        max_tokens=120
-    )
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ],
 
-    return (
-        completion
-        .choices[0]
-        .message.content
-    )
+            temperature=0.8,
+            max_tokens=80
+        )
+
+        return (
+            completion
+            .choices[0]
+            .message.content
+        )
+
+    except Exception as e:
+
+        print("❌ Groq error:", e)
+
+        fallback = {
+            "happy": "You seem happy today 😄",
+            "sad": "I hope things get better ❤️",
+            "angry": "Take it easy, everything will be okay 🙏",
+            "fear": "Don't worry, you're safe 💙",
+            "surprise": "Wow, that's surprising 😮",
+            "neutral": "Hope you're doing well 🙂",
+            "disgust": "That doesn't seem pleasant 😕"
+        }
+
+        return fallback.get(
+            emotion,
+            "Hello 🙂"
+        )
