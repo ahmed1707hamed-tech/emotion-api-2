@@ -16,42 +16,54 @@ def generate_response(
         emotion_prompts = {
 
             "happy": (
-                "Respond warmly and cheerfully."
+                "The user looks happy. "
+                "Reply in a warm, friendly, natural way "
+                "using 1-2 short sentences."
             ),
 
             "sad": (
-                "Respond with empathy."
+                "The user seems sad. "
+                "Reply with empathy and emotional support "
+                "using 1-2 natural sentences."
             ),
 
             "angry": (
-                "Respond calmly and softly."
+                "The user seems angry. "
+                "Reply calmly and help ease the tension "
+                "using short natural sentences."
             ),
 
             "fear": (
-                "Respond reassuringly."
+                "The user seems anxious or fearful. "
+                "Reply reassuringly and gently "
+                "using 1-2 sentences."
             ),
 
             "surprise": (
-                "Respond with excitement."
+                "The user looks surprised. "
+                "Reply with curiosity and engagement "
+                "using short natural sentences."
             ),
 
             "neutral": (
-                "Respond naturally."
+                "The user appears neutral. "
+                "Reply casually and naturally."
             ),
 
             "disgust": (
-                "Respond carefully and sympathetically."
+                "The user seems uncomfortable. "
+                "Reply sympathetically and naturally."
             )
         }
 
         system_prompt = emotion_prompts.get(
             emotion,
-            "Respond naturally."
+            emotion_prompts["neutral"]
         )
 
         if not user_text:
             user_text = (
-                f"My emotion is {emotion}"
+                f"My detected emotion is {emotion}"
             )
 
         completion = client.chat.completions.create(
@@ -71,28 +83,31 @@ def generate_response(
                 }
             ],
 
-            temperature=0.8,
-            max_tokens=80
+            temperature=0.9,
+            max_tokens=60
         )
 
-        return (
+        response = (
             completion
             .choices[0]
             .message.content
+            .strip()
         )
+
+        return response
 
     except Exception as e:
 
         print("❌ Groq error:", e)
 
         fallback = {
-            "happy": "You seem happy today 😄",
-            "sad": "I hope things get better ❤️",
+            "happy": "You seem really happy today 😄",
+            "sad": "I hope things get better soon 💙",
             "angry": "Take it easy, everything will be okay 🙏",
             "fear": "Don't worry, you're safe 💙",
-            "surprise": "Wow, that's surprising 😮",
+            "surprise": "Wow, that looks surprising 😮",
             "neutral": "Hope you're doing well 🙂",
-            "disgust": "That doesn't seem pleasant 😕"
+            "disgust": "That doesn't seem very pleasant 😕"
         }
 
         return fallback.get(
