@@ -1,8 +1,8 @@
 fastapi
 uvicorn
 onnxruntime
-opencv-python
-numpy
+opencv-python==4.8.1.78
+numpy==1.26.4
 scikit-learn
 librosa
 joblib
