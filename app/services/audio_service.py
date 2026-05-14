@@ -91,13 +91,13 @@ class AudioModelService:
             # Float32 conversion
             audio = audio.astype(np.float32)
 
-            # --- DEBUG LOGGING (User Requirement 1) ---
-            print("="*50)
+            # --- DEBUG LOGGING (User Requirement 2) ---
+            print("=" * 50)
             print("AUDIO FILE:", file_path)
             print("SAMPLE RATE:", sr)
             print("AUDIO SHAPE:", audio.shape)
             print("AUDIO DTYPE:", audio.dtype)
-            print("AUDIO MIN/MAX:", audio.min(), audio.max())
+            print("MIN/MAX:", audio.min(), audio.max())
 
             # MFCC Features
             mfcc = librosa.feature.mfcc(
@@ -105,9 +105,16 @@ class AudioModelService:
                 sr=sr,
                 n_mfcc=40
             )
-            features = np.mean(mfcc.T, axis=0).reshape(1, 40).astype(np.float32)
+            raw_features = np.mean(mfcc.T, axis=0).reshape(1, 40).astype(np.float32)
+            
+            # --- APPLY CMVN SCALING (New Fix) ---
+            # Standardizing features to mean 0, std 1
+            features = (raw_features - np.mean(raw_features)) / (np.std(raw_features) + 1e-6)
+            
             print("MODEL_INPUT_SHAPE:", features.shape)
-            print("INPUT NAME:", self.input_name)
+            print("RAW_FEATURES_SAMPLE:", raw_features[0][:5])
+            print("SCALED_FEATURES_SAMPLE:", features[0][:5])
+            print("FEATURES_MIN/MAX:", features.min(), features.max())
 
             # ONNX inference
             outputs = self.session.run(
@@ -117,14 +124,14 @@ class AudioModelService:
             print("RAW_OUTPUT:", outputs)
             print("OUTPUT_SHAPE:", np.array(outputs[0]).shape)
 
-            # --- FIX OUTPUT SHAPE BUG (User Requirement 3) ---
+            # --- FIX ONNX OUTPUT PARSING (User Requirement 3) ---
             logits = np.array(outputs[0]).squeeze()
             print("LOGITS:", logits)
 
-            # --- APPLY SOFTMAX CORRECTLY (User Requirement 3) ---
+            # --- APPLY SOFTMAX CORRECTLY ---
             exp_scores = np.exp(logits - np.max(logits))
             probs = exp_scores / exp_scores.sum()
-            print("PROBABILITIES:", probs)
+            print("AUDIO_PROBS:", probs)
 
             pred_idx = int(np.argmax(probs))
             confidence = float(np.max(probs))
@@ -133,19 +140,15 @@ class AudioModelService:
             print("CONFIDENCE:", confidence)
             print("ENCODER_CLASSES:", self.encoder.classes_)
 
-            # --- FIX LABEL MAPPING BUG (User Requirement 2) ---
-            # User requirement: Use ONLY inverse_transform
+            # --- FIX LABEL MAPPING (User Requirement 4) ---
+            # User Requirement: Use ONLY inverse_transform
             emotion = self.encoder.inverse_transform([pred_idx])[0]
 
-            print("PREDICTED_EMOTION:", emotion)
-            print("="*50)
+            print("FINAL_EMOTION:", emotion)
+            print("=" * 50)
 
-            # Map 'calm' to 'neutral' for final output if necessary
-            if emotion == "calm":
-                emotion = "neutral"
-
-            # --- FIX CONFIDENCE BUG (User Requirement 4) ---
-            # Temporarily disable threshold fallback to neutral
+            # --- NO FALLBACKS (User Requirement 1) ---
+            # Threshold disabled for debugging
             return emotion, confidence
 
         except Exception as e:

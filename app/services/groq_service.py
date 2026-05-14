@@ -23,28 +23,28 @@ def generate_response(
         # Guidance for specific emotions
         guidance = {
             "sad": {
-                "tone": "deeply empathetic, comforting, and supportive",
-                "recs": "relaxing audio, breathing exercises, or Mood Booster videos in the V8 app"
+                "tone": "deeply compassionate, comforting, and supportive. Use a soothing and gentle voice.",
+                "recs": "relaxing audio, specialized breathing exercises, or Mood Booster videos in the V8 app"
             },
             "angry": {
-                "tone": "calming, grounding, and focused on de-escalation",
-                "recs": "meditation, calming sounds, or breathing exercises in the V8 app"
+                "tone": "calming, grounding, and de-escalating. Stay extremely patient and peaceful.",
+                "recs": "guided meditation, calming sounds, or deep breathing techniques in the V8 app"
             },
             "fear": {
-                "tone": "reassuring, grounding, and gentle",
-                "recs": "slow breathing exercises, mindfulness content, or relaxing videos in the V8 app"
+                "tone": "reassuring, protective, and calming. Focus on safety and grounding.",
+                "recs": "slow breathing patterns, mindfulness content, or relaxing nature videos in the V8 app"
             },
             "happy": {
-                "tone": "positive, energetic, and encouraging",
-                "recs": "keeping the positive energy going"
+                "tone": "positive, high-energy, and enthusiastic! Celebrate with the user.",
+                "recs": "keeping this amazing positive energy flowing"
             },
             "surprise": {
-                "tone": "curious, supportive, and engaging",
-                "recs": "grounding activities if the surprise was overwhelming"
+                "tone": "curious, supportive, and engaged. Respond with genuine interest.",
+                "recs": "grounding exercises to process the unexpected"
             },
             "love": {
-                "tone": "warm, positive, and affectionate",
-                "recs": "positive journaling or content"
+                "tone": "warm, affectionate, and positive. Focus on connection.",
+                "recs": "positive journaling or connection activities"
             }
         }
 

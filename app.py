@@ -142,28 +142,6 @@ async def chat(
             final_emotion
         )
 
-        # Recommendations
-        recommendations = {
-            "happy":
-                "😄 You seem happy today! "
-                "Try Motivation Videos in V8 💙",
-
-            "sad":
-                "😔 You seem sad. "
-                "Try Relaxing Videos in V8 💙",
-
-            "angry":
-                "😠 You may be stressed. "
-                "Try Meditation in V8 🎧",
-
-            "fear":
-                "😟 You seem anxious. "
-                "Try Breathing Exercises in V8 💙",
-
-            "neutral":
-                "🙂 Your mood seems stable."
-        }
-
         llm_response = generate_response(
             emotion=final_emotion,
             user_text=clean_text
@@ -171,14 +149,7 @@ async def chat(
 
         return {
             "emotion": final_emotion,
-            "response":
-                llm_response
-                + "\n\n"
-                + recommendations.get(
-                    final_emotion,
-                    ""
-                ),
-
+            "response": llm_response,
             "modalities": {
                 "image": image_emotion,
                 "audio": audio_emotion,
