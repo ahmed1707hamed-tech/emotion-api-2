@@ -1,5 +1,8 @@
+import logging
 import os
 from groq import Groq
+
+logger = logging.getLogger(__name__)
 
 client = Groq(
     api_key=os.getenv("GROQ_API_KEY")
@@ -12,74 +15,64 @@ def generate_response(
     context_emotion: str = None
 ):
     """
-    Generate an empathetic response.
-    If context_emotion is provided, it means this is a follow-up about emotional help.
+    Generate an empathetic response based on detected emotion.
     """
+    logger.info("LLM_EMOTION_CONTEXT=%s", emotion)
+    
     try:
-        emotion_prompts = {
-            "happy": (
-                "The user looks happy. "
-                "Reply in a warm, friendly, natural way "
-                "using 1-2 short sentences."
-            ),
-            "sad": (
-                "The user seems sad. "
-                "Reply with empathy and emotional support "
-                "using 1-2 natural sentences."
-            ),
-            "angry": (
-                "The user seems angry. "
-                "Reply calmly and help ease the tension "
-                "using short natural sentences."
-            ),
-            "fear": (
-                "The user seems anxious or fearful. "
-                "Reply reassuringly and gently "
-                "using 1-2 sentences."
-            ),
-            "surprise": (
-                "The user looks surprised. "
-                "Reply with curiosity and engagement "
-                "using short natural sentences."
-            ),
-            "neutral": (
-                "The user appears neutral. "
-                "Reply casually and naturally."
-            ),
-            "love": (
-                "The user feels love or affection. "
-                "Reply warmly and supportively."
-            )
+        # Guidance for specific emotions
+        guidance = {
+            "sad": {
+                "tone": "deeply empathetic, comforting, and supportive",
+                "recs": "relaxing audio, breathing exercises, or Mood Booster videos in the V8 app"
+            },
+            "angry": {
+                "tone": "calming, grounding, and focused on de-escalation",
+                "recs": "meditation, calming sounds, or breathing exercises in the V8 app"
+            },
+            "fear": {
+                "tone": "reassuring, grounding, and gentle",
+                "recs": "slow breathing exercises, mindfulness content, or relaxing videos in the V8 app"
+            },
+            "happy": {
+                "tone": "positive, energetic, and encouraging",
+                "recs": "keeping the positive energy going"
+            },
+            "surprise": {
+                "tone": "curious, supportive, and engaging",
+                "recs": "grounding activities if the surprise was overwhelming"
+            },
+            "love": {
+                "tone": "warm, positive, and affectionate",
+                "recs": "positive journaling or content"
+            }
         }
 
-        # Recommendations based on emotion (Dynamic context for Groq)
-        recommendations = {
-            "sad": "relaxing audio, Mood Booster videos in V8, and breathing exercises",
-            "angry": "meditation, calming music, and breathing techniques",
-            "fear": "mindfulness practices, breathing exercises, and relaxing videos",
-            "happy": "motivation videos and gratitude activities",
-            "love": "journaling and positive content",
-            "surprise": "reflective prompts and grounding exercises"
-        }
-
-        system_prompt = emotion_prompts.get(
-            emotion,
-            emotion_prompts["neutral"]
+        info = guidance.get(emotion, {"tone": "casual and natural", "recs": None})
+        
+        system_prompt = (
+            f"You are a helpful and empathetic AI assistant. "
+            f"The user sounds {emotion}. "
+            f"Your response tone MUST be {info['tone']}. "
         )
 
-        # If it's a follow-up, override system prompt to be more guidance-oriented
-        if context_emotion and context_emotion != "neutral":
-            rec_text = recommendations.get(context_emotion, "simple self-care activities")
-            system_prompt = (
-                f"The user is seeking help regarding their earlier feeling of {context_emotion}. "
-                "Provide a deeply empathetic, supportive response. "
-                f"Suggest these specific activities: {rec_text}. "
-                "Mention that they can find more in the V8 app. "
-                "Keep it natural, human, and concise (2-3 sentences)."
-            )
+        if info['recs']:
+            if emotion in ["sad", "angry", "fear"]:
+                system_prompt += f"You MUST suggest that they try {info['recs']}. Mention that these are available in the V8 app. "
+            else:
+                system_prompt += f"Encourage them by mentioning {info['recs']}. "
+
+        system_prompt += (
+            "Reply in 1-2 short, natural, human-like sentences. "
+            "Do not sound like a robot. Use emojis where appropriate."
+        )
+
+        # Handle follow-up memory context if different from current
+        if context_emotion and context_emotion != "neutral" and context_emotion != emotion:
+            system_prompt += f" Also acknowledge that they previously felt {context_emotion}."
 
         if not user_text:
-            user_text = f"My detected emotion is {emotion}"
+            user_text = f"I am feeling {emotion}."
 
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -87,7 +80,7 @@ def generate_response(
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_text}
             ],
-            temperature=0.8,
+            temperature=0.7,
             max_tokens=100
         )
 
@@ -97,12 +90,12 @@ def generate_response(
     except Exception as e:
         logger.error("❌ Groq error: %s", e)
         fallback = {
-            "happy": "You seem really happy today 😄",
-            "sad": "I hope things get better soon 💙. Try some breathing exercises.",
-            "angry": "Take it easy, everything will be okay 🙏. Maybe some calming music?",
-            "fear": "Don't worry, you're safe 💙. Try a grounding exercise.",
-            "surprise": "Wow, that looks surprising 😮",
-            "neutral": "Hope you're doing well 🙂",
-            "love": "It's wonderful to feel loved 💖"
+            "happy": "You sound happy today 😄 Keep that positive energy going!",
+            "sad": "I'm sorry you're feeling this way 😔 Try some breathing exercises or relaxing audio in V8.",
+            "angry": "It sounds like you're frustrated 😠. Take a deep breath and maybe try some calming sounds in V8.",
+            "fear": "You're not alone 😟. Try slow breathing and some calming content in V8.",
+            "surprise": "What happened? You sound quite surprised 😲",
+            "neutral": "I'm here for you. How can I help today? 🙂",
+            "love": "It's wonderful to feel that warmth 💖"
         }
-        return fallback.get(emotion, "Hello 🙂")
+        return fallback.get(emotion, "I'm here for you 🙂")
