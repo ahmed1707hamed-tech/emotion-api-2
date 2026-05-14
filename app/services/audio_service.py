@@ -66,6 +66,9 @@ class AudioModelService:
                 duration=3
             )
 
+            # Trim silence
+            y, _ = librosa.effects.trim(y)
+
             # Pad short audio
             if len(y) < sr * 3:
                 y = np.pad(
@@ -109,28 +112,32 @@ class AudioModelService:
             idx = int(np.argmax(preds))
             conf = float(np.max(preds))
             
+            # Calculate margin (difference between winner and runner-up)
+            sorted_preds = np.sort(preds)
+            margin = float(sorted_preds[-1] - sorted_preds[-2]) if len(preds) > 1 else 1.0
+
             if idx < len(AUDIO_LABELS):
                 label = AUDIO_LABELS[idx]
             else:
                 label = "neutral" # Fallback
 
-            # Map 'calm' to 'neutral' for our API
+            # REQUIRED LOGS FOR DEBUGGING
+            logger.info("AUDIO_PROBS=%s", preds.tolist())
+            logger.info("AUDIO_CONFIDENCE=%.4f", conf)
+            logger.info("AUDIO_MARGIN=%.4f", margin)
+
+            # Map 'calm' to 'neutral' for our API (Normal speaking voice)
             if label == "calm":
                 label = "neutral"
 
-            # REQUIRED LOGS FOR DEBUGGING
-            logger.info("AUDIO_PROBS: %s", preds.tolist())
-            logger.info("AUDIO_CONFIDENCE: %.4f", conf)
-            logger.info("AUDIO_PREDICTION: %s", label)
-
-            # --- CONFIDENCE LOGIC ---
-            # Stricter threshold for 'happy' to avoid over-prediction
-            THRESHOLD = 0.6 if label == "happy" else 0.45
-
-            if conf < THRESHOLD:
-                logger.info("⚠️ Low confidence (%.2f < %.2f) → Fallback to neutral", conf, THRESHOLD)
+            # --- UNCERTAINTY LOGIC ---
+            # Only fallback to neutral if prediction is TRULY weak/confused
+            # e.g. winner < 0.25 (very distributed) or margin < 0.05 (too close)
+            if conf < 0.25 or margin < 0.05:
+                logger.info("⚠️ High uncertainty (conf=%.2f, margin=%.2f) → Fallback to neutral", conf, margin)
                 return "neutral", conf
 
+            logger.info("FINAL_AUDIO_EMOTION=%s", label)
             return label, conf
 
         except Exception as e:
