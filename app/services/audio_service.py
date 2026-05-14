@@ -59,9 +59,10 @@ class AudioModelService:
             return None, 0.0
 
         try:
-            # Load audio
+            # Load audio (Force 16kHz for consistency)
             y, sr = librosa.load(
                 file_path,
+                sr=16000,
                 duration=3
             )
 
@@ -95,27 +96,39 @@ class AudioModelService:
 
             preds = outputs[0][0]
 
-            logger.info(
-                "📊 Audio predictions: %s",
-                preds
-            )
+            # If outputs look like logits (not between 0-1), apply softmax
+            if np.max(preds) > 1.0 or np.min(preds) < 0.0:
+                exp_preds = np.exp(preds - np.max(preds))
+                preds = exp_preds / exp_preds.sum()
+                logger.info("ℹ️ Applied Softmax to logits")
 
+            # Map labels manually if the encoder is mismatched (Model has 7 outputs)
+            # Standard RAVDESS 7-class mapping: 0:neutral, 1:calm, 2:happy, 3:sad, 4:angry, 5:fear, 6:disgust
+            AUDIO_LABELS = ["neutral", "calm", "happy", "sad", "angry", "fear", "disgust"]
+            
             idx = int(np.argmax(preds))
-
             conf = float(np.max(preds))
+            
+            if idx < len(AUDIO_LABELS):
+                label = AUDIO_LABELS[idx]
+            else:
+                label = "neutral" # Fallback
 
-            label = str(
-                self.encoder.classes_[idx]
-            ).lower()
+            # Map 'calm' to 'neutral' for our API
+            if label == "calm":
+                label = "neutral"
 
-            logger.info(
-                "🎯 Audio prediction: %s | Confidence: %.4f",
-                label,
-                conf
-            )
+            # REQUIRED LOGS FOR DEBUGGING
+            logger.info("AUDIO_PROBS: %s", preds.tolist())
+            logger.info("AUDIO_CONFIDENCE: %.4f", conf)
+            logger.info("AUDIO_PREDICTION: %s", label)
 
-            # Low confidence fallback
-            if conf < 0.45:
+            # --- CONFIDENCE LOGIC ---
+            # Stricter threshold for 'happy' to avoid over-prediction
+            THRESHOLD = 0.6 if label == "happy" else 0.45
+
+            if conf < THRESHOLD:
+                logger.info("⚠️ Low confidence (%.2f < %.2f) → Fallback to neutral", conf, THRESHOLD)
                 return "neutral", conf
 
             return label, conf
