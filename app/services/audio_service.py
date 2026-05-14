@@ -1,4 +1,5 @@
 import logging
+import os
 import numpy as np
 import librosa
 import onnxruntime as ort
@@ -17,23 +18,29 @@ class AudioModelService:
 
     def load_model(self, model_path: str = None, encoder_path: str = None):
         try:
-            # Download ONNX model from HF Hub
-            model_path = hf_hub_download(
-                repo_id="ahmed-hamed/emotion-api-2",
-                filename="audio/audio_model.onnx",
-                repo_type="space"
-            )
+            # Check for local files first
+            local_model = "emotion-models/audio_model.onnx"
+            local_encoder = "emotion-models/encoder_stable.pkl"
+            
+            if os.path.exists(local_model):
+                model_path = local_model
+            else:
+                model_path = hf_hub_download(
+                    repo_id="ahmed-hamed/emotion-api-2",
+                    filename="audio/audio_model.onnx",
+                    repo_type="space"
+                )
+                logger.info("📦 Downloaded audio model: %s", model_path)
 
-            logger.info("📦 Downloaded audio model: %s", model_path)
-
-            # Download encoder
-            encoder_path = hf_hub_download(
-                repo_id="ahmed-hamed/emotion-api-2",
-                filename="emotion-models/encoder_stable.pkl",
-                repo_type="space"
-            )
-
-            logger.info("📦 Downloaded encoder: %s", encoder_path)
+            if os.path.exists(local_encoder):
+                encoder_path = local_encoder
+            else:
+                encoder_path = hf_hub_download(
+                    repo_id="ahmed-hamed/emotion-api-2",
+                    filename="emotion-models/encoder_stable.pkl",
+                    repo_type="space"
+                )
+                logger.info("📦 Downloaded encoder: %s", encoder_path)
 
             # Load ONNX session
             self.session = ort.InferenceSession(
@@ -59,86 +66,87 @@ class AudioModelService:
             return None, 0.0
 
         try:
-            # Load audio (Force 16kHz for consistency)
-            y, sr = librosa.load(
+            # --- PREPROCESSING (User Requirement 5) ---
+            # Load audio
+            audio, sr = librosa.load(
                 file_path,
                 sr=16000,
-                duration=3
+                mono=True
             )
-
+            
             # Trim silence
-            y, _ = librosa.effects.trim(y)
+            audio, _ = librosa.effects.trim(audio)
+            
+            # Normalize amplitude
+            if np.max(np.abs(audio)) > 0:
+                audio = audio / np.max(np.abs(audio))
+            
+            # Pad/Truncate to 3s
+            target_len = 16000 * 3
+            if len(audio) < target_len:
+                audio = np.pad(audio, (0, target_len - len(audio)))
+            else:
+                audio = audio[:target_len]
 
-            # Pad short audio
-            if len(y) < sr * 3:
-                y = np.pad(
-                    y,
-                    (0, sr * 3 - len(y))
-                )
+            # Float32 conversion
+            audio = audio.astype(np.float32)
 
-            # Normalize
-            y = librosa.util.normalize(y)
+            # --- DEBUG LOGGING (User Requirement 1) ---
+            print("="*50)
+            print("AUDIO FILE:", file_path)
+            print("SAMPLE RATE:", sr)
+            print("AUDIO SHAPE:", audio.shape)
+            print("AUDIO DTYPE:", audio.dtype)
+            print("AUDIO MIN/MAX:", audio.min(), audio.max())
 
-            # MFCC features
+            # MFCC Features
             mfcc = librosa.feature.mfcc(
-                y=y,
+                y=audio,
                 sr=sr,
                 n_mfcc=40
             )
-
-            features = np.mean(
-                mfcc.T,
-                axis=0
-            ).reshape(1, 40).astype(np.float32)
+            features = np.mean(mfcc.T, axis=0).reshape(1, 40).astype(np.float32)
+            print("MODEL_INPUT_SHAPE:", features.shape)
+            print("INPUT NAME:", self.input_name)
 
             # ONNX inference
             outputs = self.session.run(
                 None,
                 {self.input_name: features}
             )
+            print("RAW_OUTPUT:", outputs)
+            print("OUTPUT_SHAPE:", np.array(outputs[0]).shape)
 
-            preds = outputs[0][0]
+            # --- FIX OUTPUT SHAPE BUG (User Requirement 3) ---
+            logits = np.array(outputs[0]).squeeze()
+            print("LOGITS:", logits)
 
-            # If outputs look like logits (not between 0-1), apply softmax
-            if np.max(preds) > 1.0 or np.min(preds) < 0.0:
-                exp_preds = np.exp(preds - np.max(preds))
-                preds = exp_preds / exp_preds.sum()
-                logger.info("ℹ️ Applied Softmax to logits")
+            # --- APPLY SOFTMAX CORRECTLY (User Requirement 3) ---
+            exp_scores = np.exp(logits - np.max(logits))
+            probs = exp_scores / exp_scores.sum()
+            print("PROBABILITIES:", probs)
 
-            # Map labels manually if the encoder is mismatched (Model has 7 outputs)
-            # Standard RAVDESS 7-class mapping: 0:neutral, 1:calm, 2:happy, 3:sad, 4:angry, 5:fear, 6:disgust
-            AUDIO_LABELS = ["neutral", "calm", "happy", "sad", "angry", "fear", "disgust"]
-            
-            idx = int(np.argmax(preds))
-            conf = float(np.max(preds))
-            
-            # Calculate margin (difference between winner and runner-up)
-            sorted_preds = np.sort(preds)
-            margin = float(sorted_preds[-1] - sorted_preds[-2]) if len(preds) > 1 else 1.0
+            pred_idx = int(np.argmax(probs))
+            confidence = float(np.max(probs))
 
-            if idx < len(AUDIO_LABELS):
-                label = AUDIO_LABELS[idx]
-            else:
-                label = "neutral" # Fallback
+            print("ARGMAX:", pred_idx)
+            print("CONFIDENCE:", confidence)
+            print("ENCODER_CLASSES:", self.encoder.classes_)
 
-            # REQUIRED LOGS FOR DEBUGGING
-            logger.info("AUDIO_PROBS=%s", preds.tolist())
-            logger.info("AUDIO_CONFIDENCE=%.4f", conf)
-            logger.info("AUDIO_MARGIN=%.4f", margin)
+            # --- FIX LABEL MAPPING BUG (User Requirement 2) ---
+            # User requirement: Use ONLY inverse_transform
+            emotion = self.encoder.inverse_transform([pred_idx])[0]
 
-            # Map 'calm' to 'neutral' for our API (Normal speaking voice)
-            if label == "calm":
-                label = "neutral"
+            print("PREDICTED_EMOTION:", emotion)
+            print("="*50)
 
-            # --- UNCERTAINTY LOGIC ---
-            # Only fallback to neutral if prediction is TRULY weak/confused
-            # e.g. winner < 0.25 (very distributed) or margin < 0.05 (too close)
-            if conf < 0.25 or margin < 0.05:
-                logger.info("⚠️ High uncertainty (conf=%.2f, margin=%.2f) → Fallback to neutral", conf, margin)
-                return "neutral", conf
+            # Map 'calm' to 'neutral' for final output if necessary
+            if emotion == "calm":
+                emotion = "neutral"
 
-            logger.info("FINAL_AUDIO_EMOTION=%s", label)
-            return label, conf
+            # --- FIX CONFIDENCE BUG (User Requirement 4) ---
+            # Temporarily disable threshold fallback to neutral
+            return emotion, confidence
 
         except Exception as e:
             logger.error(
