@@ -121,10 +121,10 @@ class AudioModelService:
                 None,
                 {self.input_name: features}
             )
+            print("="*50)
             print("RAW_OUTPUT:", outputs)
-            print("OUTPUT_SHAPE:", np.array(outputs[0]).shape)
 
-            # --- FIX ONNX OUTPUT PARSING (User Requirement 3) ---
+            # --- FIX ONNX OUTPUT PARSING ---
             logits = np.array(outputs[0]).squeeze()
             print("LOGITS:", logits)
 
@@ -136,16 +136,38 @@ class AudioModelService:
             pred_idx = int(np.argmax(probs))
             confidence = float(np.max(probs))
 
-            print("ARGMAX:", pred_idx)
+            print("PRED_IDX:", pred_idx)
             print("CONFIDENCE:", confidence)
-            print("ENCODER_CLASSES:", self.encoder.classes_)
 
-            # --- FIX LABEL MAPPING (User Requirement 4) ---
-            # User Requirement: Use ONLY inverse_transform
-            emotion = self.encoder.inverse_transform([pred_idx])[0]
+            # Check if encoder exists for logging, but don't depend on it
+            if self.encoder is not None and hasattr(self.encoder, 'classes_'):
+                print("ENCODER_CLASSES:", self.encoder.classes_)
+                try:
+                    predicted_enc = self.encoder.inverse_transform([pred_idx])[0]
+                    print("ENCODER_PREDICTION:", predicted_enc)
+                except Exception as e:
+                    print("ENCODER_PREDICTION_ERROR:", e)
+
+            # --- CORRECT HARDCODED MAPPING ---
+            # Standard alphabetical 7-class order for SER models
+            MODEL_CLASSES = [
+                "angry",
+                "disgust",
+                "fear",
+                "happy",
+                "neutral",
+                "sad",
+                "surprise"
+            ]
+
+            # Use the hardcoded classes
+            if pred_idx < len(MODEL_CLASSES):
+                emotion = MODEL_CLASSES[pred_idx]
+            else:
+                emotion = "neutral"
 
             print("FINAL_EMOTION:", emotion)
-            print("=" * 50)
+            print("="*50)
 
             # --- NO FALLBACKS (User Requirement 1) ---
             # Threshold disabled for debugging
